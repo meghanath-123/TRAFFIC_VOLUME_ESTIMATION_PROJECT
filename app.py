@@ -1,33 +1,86 @@
-import numpy as np
-import pickle
-
-import pandas
-import os
 from flask import Flask, request, render_template
+import numpy as np
+import pandas as pd
+import pickle
+import os
 
+app = Flask(__name__)
 
-app = Flask(__name__,template_folder='template')
-model = pickle.load(open(r"D:\Traffic volume estimation project\flask\Template\model.pkl",'rb'))
+# Load model and scaler
+import joblib
 
-@app.route('/')# route to display the home page
-def index():
-    return render_template('index.html') #rendering the home page
+model = joblib.load("model.joblib")
+scaler = pickle.load(open("scale.pkl", "rb"))
 
-@app.route('/predict',methods=["POST","GET"])# route to show the predictions in a web UI
+# Manual mappings used during training
+holiday_mapping = {
+    'None': 7,
+    'Columbus Day': 1,
+    'Veterans Day': 10,
+    'Thanksgiving Day': 9,
+    'Christmas Day': 6,
+    'New Years Day': 2,
+    'Washingtons Birthday': 11,
+    'Memorial Day': 5,
+    'Independence Day': 12,
+    'State Fair': 3,
+    'Labor Day': 9,
+    'Martin Luther King Jr Day': 4
+}
+
+weather_mapping = {
+    'Clear': 0,
+    'Clouds': 1,
+    'Rain': 3,
+    'Drizzle': 4,
+    'Mist': 5,
+    'Haze': 4,
+    'Fog': 7,
+    'Thunderstorm': 10,
+    'RainSnow': 8,
+    'Squall': 9,
+    'Smoke': 10
+}
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+@app.route('/predict', methods=['POST'])
 def predict():
-    #  reading the inputs given by the user
-    input_feature=[float(x) for x in request.form.values() ]  
-    features_values=[np.array(input_feature)]
-    names = [['holiday','temp', 'rain', 'snow', 'weather', 'year', 'month', 'day','hours', 'minutes', 'seconds']]
-    data = pandas.DataFrame(features_values,columns=names)
-     # predictions using the loaded model file
-    prediction=model.predict(data)
-    print(prediction)
-    text = "Estimated Traffic Volume is :"
-    return render_template("output.html",result = text + str(prediction) + "units")
-     # showing the prediction results in a UI
-if __name__=="__main__":
-    
-    # app.run(host='0.0.0.0', port=8000,debug=True)    # running the app
-    port=int(os.environ.get('PORT',5000))
-    app.run(port=port,debug=True,use_reloader=False)
+    try:
+        # Get form values
+        holiday = request.form['holiday']
+        temp = float(request.form['temp'])
+        rain = float(request.form['rain'])
+        snow = float(request.form['snow'])
+        weather = request.form['weather']
+        year = int(request.form['year'])
+        month = int(request.form['month'])
+        day = int(request.form['day'])
+        hours = int(request.form['hours'])
+        minutes = int(request.form['minutes'])
+        seconds = int(request.form['seconds'])
+
+        # Map string values to numbers
+        holiday_encoded = holiday_mapping.get(holiday, 7)
+        weather_encoded = weather_mapping.get(weather, 0)
+
+        # Arrange features in correct order
+        input_data = pd.DataFrame([[holiday_encoded, temp, rain, snow, weather_encoded, day, month, year, hours, minutes, seconds]],
+                                  columns=['holiday', 'temp', 'rain', 'snow', 'weather', 'day', 'month', 'year', 'hours', 'minutes', 'seconds'])
+
+        # Feature scaling
+        scaled_data = scaler.transform(input_data)
+
+        # Prediction
+        prediction = model.predict(scaled_data)
+
+        return render_template('output.html', prediction=int(prediction))
+
+    except Exception as e:
+        return render_template('index.html', prediction_text=f"Error: {str(e)}")
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(port=port, debug=True, use_reloader=False)
